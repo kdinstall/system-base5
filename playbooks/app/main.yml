@@ -172,7 +172,6 @@
           ExecStart={{ app_bin_path }}
           Environment=SERVER_PORT={{ app_port }}
           Environment=PLAYBOOKS_DIR={{ playbooks_dir }}
-          Environment=ENABLE_SSL=true
           Environment=SSL_CERT_PATH=/opt/kdinstall/certs/server.crt
           Environment=SSL_KEY_PATH=/opt/kdinstall/certs/server.key
           Restart=on-failure

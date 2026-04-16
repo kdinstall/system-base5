@@ -56,13 +56,7 @@ make run     # アプリ起動
 
 #### 5. ブラウザでアクセス
 
-開発環境では通常HTTPモードで起動します：
-
-```
-http://localhost:58080
-```
-
-HTTPSモードで開発する場合は、テスト用の自己署名証明書を生成して環境変数を設定してください：
+開発環境でもHTTPSで起動します。テスト用の自己署名証明書を生成してください：
 
 ```bash
 # テスト証明書生成
@@ -72,7 +66,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -subj "/C=JP/ST=Tokyo/L=Tokyo/O=kdinstall/CN=localhost"
 
 # HTTPS起動
-ENABLE_SSL=true SSL_CERT_PATH=./certs/server.crt SSL_KEY_PATH=./certs/server.key make run
+SSL_CERT_PATH=./certs/server.crt SSL_KEY_PATH=./certs/server.key make run
 ```
 
 その後、`https://localhost:58080` でアクセス（ブラウザの自己署名証明書警告を承認）

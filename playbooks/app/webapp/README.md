@@ -50,16 +50,9 @@ systemd サービス `kdinstall-webapp` として起動します。
 
 - `SERVER_PORT`: リッスンポート（デフォルト: 58080）
 - `PLAYBOOKS_DIR`: Playbookディレクトリパス（デフォルト: ../containers、本番環境では `/opt/kdinstall/containers`）
-- `ENABLE_SSL`: SSL/TLS有効化フラグ（デフォルト: true、開発時は false に設定可能）
 - `SSL_CERT_PATH`: SSL証明書ファイルパス（デフォルト: `/opt/kdinstall/certs/server.crt`）
 - `SSL_KEY_PATH`: SSL秘密鍵ファイルパス（デフォルト: `/opt/kdinstall/certs/server.key`）
 
 ## HTTPS対応
 
-本番環境では自己署名SSL証明書を使用してHTTPS配信します（ポート58080）。証明書は初回デプロイ時に自動生成され、10年間有効です。
-
-開発環境でHTTPモードを使用する場合：
-
-```bash
-ENABLE_SSL=false make run
-```
+**HTTPSのみをサポート**します（HTTPポートは無効）。自己署名SSL証明書を使用してHTTPS配信します（ポート58080）。証明書は初回デプロイ時に自動生成され、10年間有効です。

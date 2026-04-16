@@ -294,7 +294,6 @@ Group=kdi
 ExecStart=/opt/kdinstall/bin/webapp
 Environment=SERVER_PORT=58080
 Environment=PLAYBOOKS_DIR=/opt/kdinstall/containers
-Environment=ENABLE_SSL=true
 Environment=SSL_CERT_PATH=/opt/kdinstall/certs/server.crt
 Environment=SSL_KEY_PATH=/opt/kdinstall/certs/server.key
 Restart=always
@@ -304,7 +303,6 @@ Restart=always
 
 - `SERVER_PORT` - Web server listen port (default: 58080)
 - `PLAYBOOKS_DIR` - Container playbooks directory (default: `/opt/kdinstall/containers`)
-- `ENABLE_SSL` - Enable SSL/TLS (default: true, set to false for development)
 - `SSL_CERT_PATH` - SSL certificate file path (default: `/opt/kdinstall/certs/server.crt`)
 - `SSL_KEY_PATH` - SSL private key file path (default: `/opt/kdinstall/certs/server.key`)
 
@@ -312,11 +310,11 @@ Restart=always
 
 ### SSL/TLS Configuration
 
-The application serves HTTPS by default using a self-signed certificate:
+The application serves **HTTPS only** (HTTP is disabled) using a self-signed certificate:
 
 - Certificate is auto-generated on first deployment (10 years validity)
 - Stored at `/opt/kdinstall/certs/server.{crt,key}`
-- For development, disable SSL with `ENABLE_SSL=false`
+- For development, generate test certificates with `openssl` command
 - For production with Let's Encrypt, update `SSL_CERT_PATH` and `SSL_KEY_PATH` in systemd service
 
 ### Update Strategy
