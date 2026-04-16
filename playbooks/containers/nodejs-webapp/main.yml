@@ -1,0 +1,165 @@
+- hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    # デフォルト値（variables.ymlから上書き可能）
+    container_name: "node-webapp"
+    container_port: "3000"
+    docker_network: "app-network"
+    docker_image: "node:20-alpine"
+    db_host: "mysql-server"
+    db_port: "3306"
+    db_name: "myapp"
+    db_user: "dbuser"
+    db_password: ""
+    app_env: "production"
+    secret_key: ""
+    app_domain: "app.example.com"
+    nginx_container: "nginx-server"
+    host_conf_dir: "/opt/nginx/conf.d"
+
+  tasks:
+    - name: Create Docker network (if not exists)
+      command: docker network create {{ docker_network }}
+      register: network_result
+      failed_when: false
+      changed_when: network_result.rc == 0
+
+    - name: Check if Node.js container already exists
+      command: docker inspect {{ container_name }}
+      register: container_check
+      failed_when: false
+
+    - name: Run Node.js webapp container
+      command: >
+        docker run -d
+        --name {{ container_name }}
+        --network {{ docker_network }}
+        -p 127.0.0.1:{{ container_port }}:3000
+        -e NODE_ENV={{ app_env }}
+        -e DB_HOST={{ db_host }}
+        -e DB_PORT={{ db_port }}
+        -e DB_NAME={{ db_name }}
+        -e DB_USER={{ db_user }}
+        -e DB_PASSWORD={{ db_password }}
+        -e SECRET_KEY={{ secret_key }}
+        --restart unless-stopped
+        {{ docker_image }}
+        node -e "require('http').createServer((req,res)=>{res.writeHead(200,{'Content-Type':'text/html;charset=utf-8'});res.end('<h1>Hello from Node.js</h1><p>Container: {{ container_name }}</p><p>Environment: '+process.env.NODE_ENV+'</p>');}).listen(3000,()=>console.log('HTTP Server running on port 3000'));"
+      register: docker_result
+      failed_when: false
+      no_log: "{{ db_password != '' or secret_key != '' }}"
+      when: container_check.rc != 0
+
+    - name: Start existing container if stopped
+      command: docker start {{ container_name }}
+      register: start_result
+      failed_when: false
+      when: container_check.rc == 0
+
+    - name: Check if Nginx container exists
+      command: docker inspect {{ nginx_container }}
+      register: nginx_check
+      failed_when: false
+
+    - name: Check if Nginx is in app network
+      command: docker network inspect {{ docker_network }} -f {% raw %}'{{ range .Containers }}{{ .Name }} {{ end }}'{% endraw %}
+      register: network_containers
+      failed_when: false
+      when: nginx_check.rc == 0
+
+    - name: Connect Nginx to app network
+      command: docker network connect {{ docker_network }} {{ nginx_container }}
+      register: network_connect
+      failed_when: false
+      when: nginx_check.rc == 0 and (network_containers.stdout is not defined or nginx_container not in network_containers.stdout)
+
+    - name: Create Nginx proxy config file
+      copy:
+        dest: "{{ host_conf_dir }}/{{ container_name }}.conf"
+        content: |
+          # HTTP server - redirect to HTTPS
+          server {
+              listen 80;
+              server_name {{ app_domain }};
+              
+              # Dockerの内部DNSを使用して動的に名前解決
+              resolver 127.0.0.11 valid=10s ipv6=off;
+              set $backend "{{ container_name }}:3000";
+              
+              location / {
+                  return 301 https://$host$request_uri;
+              }
+          }
+          
+          # HTTPS server
+          server {
+              listen 443 ssl;
+              server_name {{ app_domain }};
+              
+              # SSL certificate configuration
+              ssl_certificate /etc/nginx/ssl/server.crt;
+              ssl_certificate_key /etc/nginx/ssl/server.key;
+              
+              # SSL security settings
+              ssl_protocols TLSv1.2 TLSv1.3;
+              ssl_ciphers HIGH:!aNULL:!MD5;
+              ssl_prefer_server_ciphers on;
+              ssl_session_cache shared:SSL:10m;
+              ssl_session_timeout 10m;
+              
+              # Dockerの内部DNSを使用して動的に名前解決
+              resolver 127.0.0.11 valid=10s ipv6=off;
+              set $backend "{{ container_name }}:3000";
+              
+              location / {
+                  proxy_pass http://$backend;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_set_header X-Forwarded-Ssl on;
+                  
+                  # バックエンドが利用できない場合のエラーハンドリング
+                  proxy_intercept_errors on;
+                  error_page 502 503 504 = @backend_unavailable;
+              }
+              
+              location @backend_unavailable {
+                  default_type text/html;
+                  return 503 '<html><head><title>Service Unavailable</title></head><body><h1>503 Service Unavailable</h1><p>Backend service "{{ container_name }}" is not running.</p></body></html>';
+              }
+          }
+        mode: '0644'
+      when: nginx_check.rc == 0
+
+    - name: Reload Nginx configuration
+      command: docker exec {{ nginx_container }} nginx -s reload
+      register: nginx_reload
+      failed_when: false
+      when: nginx_check.rc == 0
+
+    - name: Show container status
+      debug:
+        msg: |
+          ✓ Node.js webapp container is running.
+          Container name: {{ container_name }}
+          Direct access: http://localhost:{{ container_port }}
+          HTTP Proxy: http://{{ app_domain }}:8081 (via Nginx - will redirect to HTTPS)
+          HTTPS Proxy: https://{{ app_domain }} (via Nginx - port 443)
+          Network: {{ docker_network }}
+          Environment: {{ app_env }}
+          Status: {% if container_check.rc == 0 %}Existing container started{% else %}New container created{% endif %}
+          {% if nginx_check.rc == 0 %}
+          ✓ Nginx proxy configured and reloaded.
+          Note: Self-signed certificate will show browser warning (safe to accept for development)
+          {% else %}
+          ⚠ Nginx container not found. Install Nginx first for proxy access.
+          {% endif %}
+      when: (container_check.rc == 0) or (docker_result.rc == 0)
+
+    - name: Show error if container creation failed
+      debug:
+        msg: "Failed to create container. Check if another service is using port {{ container_port }}"
+      when: container_check.rc != 0 and docker_result.rc != 0

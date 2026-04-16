@@ -1,0 +1,47 @@
+- hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    container_name: "mysql-server"
+    container_port: "3306"
+    mysql_root_password: "root_password_123"
+    mysql_database: "myapp"
+    mysql_user: "myuser"
+    mysql_password: "mypass_456"
+    data_dir: "/opt/mysql/data"
+
+  tasks:
+    - name: Create MySQL data directory
+      file:
+        path: "{{ data_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Run MySQL container
+      command: >
+        docker run -d
+        --name {{ container_name }}
+        -p {{ container_port }}:3306
+        -e MYSQL_ROOT_PASSWORD={{ mysql_root_password }}
+        -e MYSQL_DATABASE={{ mysql_database }}
+        -e MYSQL_USER={{ mysql_user }}
+        -e MYSQL_PASSWORD={{ mysql_password }}
+        -v {{ data_dir }}:/var/lib/mysql
+        --restart unless-stopped
+        mysql:8
+      register: docker_result
+      failed_when: false
+
+    - name: Show container status
+      debug:
+        msg: |
+          MySQL container started.
+          Connection: mysql -h localhost -P {{ container_port }} -u {{ mysql_user }} -p{{ mysql_password }} {{ mysql_database }}
+          Root password: {{ mysql_root_password }}
+      when: docker_result.rc == 0
+
+    - name: Show error if container already exists
+      debug:
+        msg: "Container may already exist. Try: docker rm {{ container_name }}"
+      when: docker_result.rc != 0

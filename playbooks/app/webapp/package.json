@@ -1,0 +1,18 @@
+{
+  "name": "webapp",
+  "version": "1.0.0",
+  "description": "Docker management web app - Tailwind CSS v4 + Preline UI",
+  "scripts": {
+    "copy-preline": "node -e \"const fs=require('fs');fs.mkdirSync('public/assets/js',{recursive:true});fs.copyFileSync('node_modules/preline/dist/preline.js','public/assets/js/preline.js')\"",
+    "build": "npm run copy-preline && tailwindcss -i ./src/style/input.css -o ./public/assets/css/style.css",
+    "watch": "npm run copy-preline && tailwindcss -i ./src/style/input.css -o ./public/assets/css/style.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.2.2",
+    "tailwindcss": "^4.2.2"
+  },
+  "dependencies": {
+    "@tailwindcss/forms": "^0.5.11",
+    "preline": "^4.1.3"
+  }
+}

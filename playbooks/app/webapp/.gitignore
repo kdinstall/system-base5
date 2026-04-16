@@ -1,0 +1,30 @@
+# Binaries
+webapp
+webapp.exe
+*.exe
+
+# CSS build output
+public/assets/css/style.css
+public/assets/js/preline.js
+
+# Node modules
+node_modules/
+package-lock.json
+
+# Go
+go.sum
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+*.tmp
+*.log

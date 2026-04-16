@@ -1,0 +1,160 @@
+- hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    app_name: kdinstall-webapp
+    app_user: kdi
+    app_group: kdi
+    app_root: /opt/kdinstall
+    app_project_dir: /opt/kdinstall/webapp
+    app_bin_dir: /opt/kdinstall/bin
+    app_bin_path: /opt/kdinstall/bin/webapp
+    app_port: "58080"
+    playbooks_dir: /opt/kdinstall/containers
+
+  tasks:
+    - name: Install packages for Go web app
+      package:
+        name:
+          - golang-go
+          - git
+          - curl
+          - ca-certificates
+          - gnupg
+          - sqlite3
+        state: present
+
+    - name: Configure NodeSource repository for latest Node.js
+      shell: |
+        set -euo pipefail
+        curl -fsSL https://deb.nodesource.com/setup_current.x | bash -
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/sources.list.d/nodesource.list
+
+    - name: Install latest Node.js
+      package:
+        name: nodejs
+        state: present
+
+    - name: Create group for app user
+      group:
+        name: "{{ app_group }}"
+        state: present
+
+    - name: Ensure docker group exists
+      group:
+        name: docker
+        state: present
+
+    - name: Create app user and add docker group
+      user:
+        name: "{{ app_user }}"
+        group: "{{ app_group }}"
+        groups: docker
+        append: true
+        create_home: false
+        shell: /usr/sbin/nologin
+        system: true
+
+    - name: Allow app user to use sudo without password
+      copy:
+        dest: /etc/sudoers.d/{{ app_user }}
+        content: "{{ app_user }} ALL=(ALL) NOPASSWD: ALL\n"
+        mode: "0440"
+        owner: root
+        group: root
+        validate: /usr/sbin/visudo -cf %s
+
+    - name: Create app directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0755"
+      loop:
+        - "{{ app_root }}"
+        - "{{ app_project_dir }}"
+        - "{{ app_bin_dir }}"
+        - "{{ playbooks_dir }}"
+
+    - name: Deploy standalone webapp project
+      copy:
+        src: "./webapp/"
+        dest: "{{ app_project_dir }}/"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0644"
+        directory_mode: "0755"
+      register: go_project_result
+
+    - name: Deploy container playbooks
+      copy:
+        src: "../containers/"
+        dest: "{{ playbooks_dir }}/"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0644"
+        directory_mode: "0755"
+
+    - name: Check app binary
+      stat:
+        path: "{{ app_bin_path }}"
+      register: app_binary
+
+    - name: Build Go web app
+      command: /usr/bin/env bash -lc 'cd {{ app_project_dir }} && rm -rf node_modules package-lock.json && npm install --include=optional && npm run build && go build -o {{ app_bin_path }} ./src'
+      when: go_project_result.changed or not app_binary.stat.exists
+      notify: Restart go web service
+
+    - name: Set binary ownership
+      file:
+        path: "{{ app_bin_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install systemd unit
+      copy:
+        dest: /etc/systemd/system/{{ app_name }}.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description={{ app_name }} web application
+          After=network-online.target docker.service
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User={{ app_user }}
+          Group={{ app_group }}
+          WorkingDirectory={{ app_project_dir }}
+          ExecStart={{ app_bin_path }}
+          Environment=SERVER_PORT={{ app_port }}
+          Environment=PLAYBOOKS_DIR={{ playbooks_dir }}
+          Restart=on-failure
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload systemd
+        - Restart go web service
+
+    - name: Enable and start go web service
+      systemd:
+        name: "{{ app_name }}"
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Restart go web service
+      systemd:
+        name: "{{ app_name }}"
+        state: restarted

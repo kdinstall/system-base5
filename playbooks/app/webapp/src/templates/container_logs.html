@@ -1,0 +1,75 @@
+{{ define "container_logs.html" }}
+{{ template "header" . }}
+
+<!-- ページヘッダ -->
+<div class="flex items-center justify-between mb-6">
+  <div class="flex items-center gap-x-3">
+    <a href="/containers"
+       class="py-2 px-2.5 inline-flex items-center gap-x-1 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
+      <span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>
+      戻る
+    </a>
+    <div>
+      <h1 class="text-2xl font-bold text-gray-800">ログ表示</h1>
+      {{- if .container }}
+      <p class="text-sm text-gray-500 mt-1">{{ .container.Name }} ({{ .container.Image }})</p>
+      {{- end }}
+    </div>
+  </div>
+  
+  {{- if .container }}
+  <div class="flex items-center gap-x-2">
+    {{- if eq .container.State "running" }}
+    <span class="inline-flex items-center gap-x-1 py-1 px-2 rounded-full text-xs font-medium bg-teal-100 text-teal-800">
+      <span class="size-1.5 rounded-full bg-teal-500"></span>
+      実行中
+    </span>
+    {{- else }}
+    <span class="inline-flex items-center gap-x-1 py-1 px-2 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+      <span class="size-1.5 rounded-full bg-gray-500"></span>
+      停止
+    </span>
+    {{- end }}
+    <a href="/containers/{{ .container.ID }}/logs"
+       class="py-2 px-3 inline-flex items-center gap-x-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
+      <span class="material-symbols-outlined" style="font-size:16px">refresh</span>
+      再読み込み
+    </a>
+  </div>
+  {{- end }}
+</div>
+
+{{- if .error }}
+<div class="mb-4 bg-red-50 border border-red-200 text-sm text-red-800 rounded-lg p-4 flex items-center gap-x-2" role="alert">
+  <span class="material-symbols-outlined text-red-500 shrink-0" style="font-size:18px">error</span>
+  {{ .error }}
+</div>
+{{- end }}
+
+<!-- ログカード -->
+<div class="flex flex-col bg-white border border-gray-200 shadow-sm rounded-xl overflow-hidden">
+  <!-- カードヘッダ -->
+  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-gray-800 flex items-center gap-x-2">
+      <span class="material-symbols-outlined text-gray-500" style="font-size:18px">description</span>
+      コンテナログ（最新100行）
+    </h2>
+  </div>
+
+  <!-- ログ内容 -->
+  <div class="p-6">
+    {{- if .logs }}
+    <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed">{{ .logs }}</pre>
+    {{- else }}
+    <div class="text-center py-12">
+      <div class="size-16 mx-auto rounded-full bg-gray-100 flex items-center justify-center mb-4">
+        <span class="material-symbols-outlined text-gray-400" style="font-size:32px">description</span>
+      </div>
+      <p class="text-gray-400 text-sm">ログがありません</p>
+    </div>
+    {{- end }}
+  </div>
+</div>
+
+{{ template "footer" . }}
+{{ end }}

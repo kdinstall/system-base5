@@ -1,0 +1,15 @@
+{{ define "footer" }}
+  </main>
+
+  <footer class="border-t border-gray-200 bg-white mt-16">
+    <div class="max-w-7xl mx-auto px-4 py-5 flex items-center justify-between text-sm text-gray-400">
+      <span>&copy; {{ .g_year }} {{ .app_name }}</span>
+      <span>Powered by Go + Docker + Ansible</span>
+    </div>
+  </footer>
+
+  <!-- Preline UI JS -->
+  <script src="/assets/js/preline.js"></script>
+</body>
+</html>
+{{ end }}

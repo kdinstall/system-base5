@@ -1,0 +1,45 @@
+- hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    container_name: "postgresql-server"
+    container_port: "5432"
+    postgres_password: "postgres_pass_123"
+    postgres_user: "postgres"
+    postgres_db: "myapp"
+    data_dir: "/opt/postgresql/data"
+
+  tasks:
+    - name: Create PostgreSQL data directory
+      file:
+        path: "{{ data_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Run PostgreSQL container
+      command: >
+        docker run -d
+        --name {{ container_name }}
+        -p {{ container_port }}:5432
+        -e POSTGRES_PASSWORD={{ postgres_password }}
+        -e POSTGRES_USER={{ postgres_user }}
+        -e POSTGRES_DB={{ postgres_db }}
+        -v {{ data_dir }}:/var/lib/postgresql/data
+        --restart unless-stopped
+        postgres:16
+      register: docker_result
+      failed_when: false
+
+    - name: Show container status
+      debug:
+        msg: |
+          PostgreSQL container started.
+          Connection: psql -h localhost -p {{ container_port }} -U {{ postgres_user }} -d {{ postgres_db }}
+          Password: {{ postgres_password }}
+      when: docker_result.rc == 0
+
+    - name: Show error if container already exists
+      debug:
+        msg: "Container may already exist. Try: docker rm {{ container_name }}"
+      when: docker_result.rc != 0

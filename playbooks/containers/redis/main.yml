@@ -1,0 +1,40 @@
+- hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    container_name: "redis-server"
+    container_port: "6379"
+    data_dir: "/opt/redis/data"
+
+  tasks:
+    - name: Create Redis data directory
+      file:
+        path: "{{ data_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Run Redis container
+      command: >
+        docker run -d
+        --name {{ container_name }}
+        -p {{ container_port }}:6379
+        -v {{ data_dir }}:/data
+        --restart unless-stopped
+        redis:latest
+        redis-server --appendonly yes
+      register: docker_result
+      failed_when: false
+
+    - name: Show container status
+      debug:
+        msg: |
+          Redis container started.
+          Connection: redis-cli -h localhost -p {{ container_port }}
+          Data persistence enabled (AOF)
+      when: docker_result.rc == 0
+
+    - name: Show error if container already exists
+      debug:
+        msg: "Container may already exist. Try: docker rm {{ container_name }}"
+      when: docker_result.rc != 0

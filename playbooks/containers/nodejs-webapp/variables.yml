@@ -1,0 +1,140 @@
+variables:
+  - name: container_name
+    label: コンテナ名
+    type: text
+    default: node-webapp
+    required: true
+    help: Dockerコンテナの名前を指定してください
+
+  - name: container_port
+    label: ポート番号
+    type: number
+    default: 3000
+    required: true
+    help: ホスト側のポート番号（アプリケーションがリッスンするポート）
+
+  - name: docker_network
+    label: Dockerネットワーク
+    type: text
+    default: app-network
+    required: true
+    help: コンテナ間通信用のDockerネットワーク名
+
+  - name: docker_image
+    label: Dockerイメージ
+    type: text
+    default: node:20-alpine
+    required: true
+    help: 使用するDockerイメージ（例：node:20-alpine, node:18）
+
+  - name: db_host
+    label: データベースホスト
+    type: text
+    default: mysql-server
+    required: false
+    help: データベースコンテナ名またはホスト名（docker network内で名前解決）
+
+  - name: db_port
+    label: データベースポート
+    type: number
+    default: 3306
+    required: false
+    help: データベースのポート番号
+
+  - name: db_name
+    label: データベース名
+    type: text
+    default: myapp
+    required: false
+    help: 接続するデータベース名
+
+  - name: db_user
+    label: データベースユーザー名
+    type: text
+    default: dbuser
+    required: false
+    help: データベース接続用のユーザー名
+
+  - name: db_password
+    label: データベースパスワード
+    type: password
+    default: ""
+    required: false
+    help: データベース接続用のパスワード
+
+  - name: app_env
+    label: アプリケーション環境
+    type: text
+    default: production
+    required: false
+    help: 実行環境（production, development, testなど）
+
+  - name: secret_key
+    label: シークレットキー
+    type: password
+    default: ""
+    required: false
+    help: アプリケーションで使用するシークレットキー
+
+  - name: app_domain
+    label: アプリケーションドメイン
+    type: text
+    default: app.example.com
+    required: true
+    help: Nginxでプロキシするドメイン名（例：app.example.com）
+
+  - name: nginx_container
+    label: Nginxコンテナ名
+    type: text
+    default: nginx-server
+    required: false
+    help: プロキシ設定を追加するNginxコンテナの名前
+
+  - name: db_user
+    label: データベースユーザー
+    type: text
+    default: dbuser
+    required: false
+    help: データベース接続用のユーザー名
+
+  - name: db_password
+    label: データベースパスワード
+    type: password
+    default: ""
+    required: false
+    help: データベース接続用のパスワード（機密情報）
+
+  - name: app_env
+    label: アプリケーション環境
+    type: text
+    default: production
+    required: true
+    help: アプリケーションの実行環境（production, development, staging等）
+
+  - name: secret_key
+    label: シークレットキー
+    type: password
+    default: ""
+    required: false
+    help: アプリケーション用のシークレットキー（セッション暗号化等に使用）
+
+  - name: ssl_enabled
+    label: SSL/HTTPS有効化
+    type: boolean
+    default: true
+    required: false
+    help: HTTPS（443ポート）でのアクセスを有効にする（開発環境では自己署名証明書を使用）
+
+  - name: https_port
+    label: HTTPSポート番号
+    type: number
+    default: 443
+    required: false
+    help: HTTPSでリッスンするポート番号（標準は443）
+
+  - name: ssl_redirect
+    label: HTTPからHTTPSへのリダイレクト
+    type: boolean
+    default: true
+    required: false
+    help: HTTPアクセス時に自動的にHTTPSにリダイレクトする

@@ -1,0 +1,42 @@
+- hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    container_name: "mongodb-server"
+    container_port: "27017"
+    mongo_root_username: "root"
+    mongo_root_password: "mongo_pass_123"
+    data_dir: "/opt/mongodb/data"
+
+  tasks:
+    - name: Create MongoDB data directory
+      file:
+        path: "{{ data_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Run MongoDB container
+      command: >
+        docker run -d
+        --name {{ container_name }}
+        -p {{ container_port }}:27017
+        -e MONGO_INITDB_ROOT_USERNAME={{ mongo_root_username }}
+        -e MONGO_INITDB_ROOT_PASSWORD={{ mongo_root_password }}
+        -v {{ data_dir }}:/data/db
+        --restart unless-stopped
+        mongo:7
+      register: docker_result
+      failed_when: false
+
+    - name: Show container status
+      debug:
+        msg: |
+          MongoDB container started.
+          Connection: mongosh "mongodb://{{ mongo_root_username }}:{{ mongo_root_password }}@localhost:{{ container_port }}"
+      when: docker_result.rc == 0
+
+    - name: Show error if container already exists
+      debug:
+        msg: "Container may already exist. Try: docker rm {{ container_name }}"
+      when: docker_result.rc != 0
