@@ -11,6 +11,9 @@ type Env struct {
 	AppName      string
 	ServerPort   string
 	PlaybooksDir string
+	EnableSSL    bool
+	SSLCertPath  string
+	SSLKeyPath   string
 }
 
 // GetEnv は設定を返す（環境変数でオーバーライド可能）
@@ -44,9 +47,28 @@ func GetEnv() Env {
 		}
 	}
 
+	// SSL設定
+	enableSSL := true
+	if sslEnv := os.Getenv("ENABLE_SSL"); sslEnv == "false" || sslEnv == "0" {
+		enableSSL = false
+	}
+
+	sslCertPath := os.Getenv("SSL_CERT_PATH")
+	if sslCertPath == "" {
+		sslCertPath = "/opt/kdinstall/certs/server.crt"
+	}
+
+	sslKeyPath := os.Getenv("SSL_KEY_PATH")
+	if sslKeyPath == "" {
+		sslKeyPath = "/opt/kdinstall/certs/server.key"
+	}
+
 	return Env{
 		AppName:      "Docker管理",
 		ServerPort:   port,
 		PlaybooksDir: playbooksDir,
+		EnableSSL:    enableSSL,
+		SSLCertPath:  sslCertPath,
+		SSLKeyPath:   sslKeyPath,
 	}
 }

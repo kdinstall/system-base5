@@ -56,9 +56,26 @@ make run     # アプリ起動
 
 #### 5. ブラウザでアクセス
 
+開発環境では通常HTTPモードで起動します：
+
 ```
 http://localhost:58080
 ```
+
+HTTPSモードで開発する場合は、テスト用の自己署名証明書を生成して環境変数を設定してください：
+
+```bash
+# テスト証明書生成
+mkdir -p certs
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout certs/server.key -out certs/server.crt \
+  -subj "/C=JP/ST=Tokyo/L=Tokyo/O=kdinstall/CN=localhost"
+
+# HTTPS起動
+ENABLE_SSL=true SSL_CERT_PATH=./certs/server.crt SSL_KEY_PATH=./certs/server.key make run
+```
+
+その後、`https://localhost:58080` でアクセス（ブラウザの自己署名証明書警告を承認）
 
 ### Makeコマンド一覧
 
@@ -108,10 +125,45 @@ ansible-playbook playbooks/app/main.yml
 
 このPlaybookは以下を実行します:
 
-1. 必要なパッケージのインストール（Go, Node.js, Docker, Ansible）
-2. アプリケーションのビルド
-3. `/opt/kdinstall/webapp`へのデプロイ
-4. systemdサービスの登録と起動
+1. 必要なパッケージのインストール（Go, Node.js, Docker, Ansible, openssl）
+2. 自己署名SSL証明書の生成（初回のみ、10年有効）
+3. アプリケーションのビルド
+4. `/opt/kdinstall/webapp`へのデプロイ
+5. systemdサービスの登録と起動（HTTPS有効化）
+
+### SSL証明書について
+
+本番環境では自己署名SSL証明書が自動生成されます：
+
+- **証明書**: `/opt/kdinstall/certs/server.crt`
+- **秘密鍵**: `/opt/kdinstall/certs/server.key`
+- **有効期間**: 10年（3650日）
+- **サブジェクト**: `/C=JP/ST=Tokyo/L=Tokyo/O=kdinstall/CN=localhost`
+
+証明書は初回デプロイ時のみ生成され、既に存在する場合は再生成されません。証明書を再生成する場合：
+
+```bash
+# 既存証明書を削除
+sudo rm /opt/kdinstall/certs/server.{crt,key}
+
+# Playbookを再実行（証明書が再生成される）
+ansible-playbook playbooks/app/main.yml
+```
+
+本番環境でLet's Encrypt等の正式な証明書を使用する場合は、環境変数を設定してください：
+
+```bash
+# systemdサービスファイルを編集
+sudo systemctl edit kdinstall-webapp
+
+# 以下を追加
+[Service]
+Environment=SSL_CERT_PATH=/etc/letsencrypt/live/example.com/fullchain.pem
+Environment=SSL_KEY_PATH=/etc/letsencrypt/live/example.com/privkey.pem
+
+# サービスを再起動
+sudo systemctl restart kdinstall-webapp
+```
 
 ### 手動デプロイ
 
@@ -144,8 +196,49 @@ ssh user@server "sudo mv /tmp/webapp/* /opt/kdinstall/webapp/"
 **kdinstall-webapp.service**
 ```ini
 [Unit]
-Description=Docker管理Webアプリケーション
+Description=kdinstall-webapp HTTPS web application
 After=network.target docker.service
+
+[Service]
+Type=simple
+User=kdi
+Group=kdi
+WorkingDirectory=/opt/kdinstall/webapp
+ExecStart=/opt/kdinstall/bin/webapp
+Environment=SERVER_PORT=58080
+Environment=PLAYBOOKS_DIR=/opt/kdinstall/containers
+Environment=ENABLE_SSL=true
+Environment=SSL_CERT_PATH=/opt/kdinstall/certs/server.crt
+Environment=SSL_KEY_PATH=/opt/kdinstall/certs/server.key
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### 4. サービスの起動
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable kdinstall-webapp
+sudo systemctl start kdinstall-webapp
+```
+
+#### 5. 動作確認
+
+```bash
+# サービス状態確認
+sudo systemctl status kdinstall-webapp
+
+# HTTPSアクセステスト（自己署名証明書を信頼）
+curl -k https://localhost:58080/containers
+
+# 証明書情報確認
+openssl x509 -in /opt/kdinstall/certs/server.crt -text -noout | grep -E "Validity|Subject"
+```
+
+ブラウザからアクセスする場合は `https://localhost:58080` で、自己署名証明書の警告が表示されます。警告を承認すると正常にアクセスできます。
 
 [Service]
 Type=simple

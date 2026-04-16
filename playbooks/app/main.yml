@@ -80,6 +80,44 @@
         - "{{ app_bin_dir }}"
         - "{{ playbooks_dir }}"
 
+    - name: Ensure openssl is installed
+      package:
+        name: openssl
+        state: present
+
+    - name: Create certs directory
+      file:
+        path: /opt/kdinstall/certs
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0700"
+
+    - name: Check if SSL certificate exists
+      stat:
+        path: /opt/kdinstall/certs/server.crt
+      register: ssl_cert
+
+    - name: Generate self-signed SSL certificate
+      command: >
+        openssl req -x509 -nodes -days 3650
+        -newkey rsa:2048
+        -keyout /opt/kdinstall/certs/server.key
+        -out /opt/kdinstall/certs/server.crt
+        -subj "/C=JP/ST=Tokyo/L=Tokyo/O=kdinstall/CN=localhost"
+      when: not ssl_cert.stat.exists
+
+    - name: Set certificate file permissions
+      file:
+        path: "{{ item.path }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /opt/kdinstall/certs/server.crt, mode: "0644" }
+        - { path: /opt/kdinstall/certs/server.key, mode: "0600" }
+      when: not ssl_cert.stat.exists
+
     - name: Deploy standalone webapp project
       copy:
         src: "./webapp/"
@@ -122,7 +160,7 @@
         mode: "0644"
         content: |
           [Unit]
-          Description={{ app_name }} web application
+          Description={{ app_name }} HTTPS web application
           After=network-online.target docker.service
           Wants=network-online.target
 
@@ -134,6 +172,9 @@
           ExecStart={{ app_bin_path }}
           Environment=SERVER_PORT={{ app_port }}
           Environment=PLAYBOOKS_DIR={{ playbooks_dir }}
+          Environment=ENABLE_SSL=true
+          Environment=SSL_CERT_PATH=/opt/kdinstall/certs/server.crt
+          Environment=SSL_KEY_PATH=/opt/kdinstall/certs/server.key
           Restart=on-failure
           RestartSec=3
 

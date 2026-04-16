@@ -34,14 +34,30 @@ make dev
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Launch Webapp",
+      "name": "Launch Webapp (HTTP)",
       "type": "go",
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/src",
       "env": {
         "SERVER_PORT": "58080",
-        "PLAYBOOKS_DIR": "${workspaceFolder}/../../../containers"
+        "PLAYBOOKS_DIR": "${workspaceFolder}/../../../containers",
+        "ENABLE_SSL": "false"
+      },
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Launch Webapp (HTTPS)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/src",
+      "env": {
+        "SERVER_PORT": "58080",
+        "PLAYBOOKS_DIR": "${workspaceFolder}/../../../containers",
+        "ENABLE_SSL": "true",
+        "SSL_CERT_PATH": "${workspaceFolder}/certs/server.crt",
+        "SSL_KEY_PATH": "${workspaceFolder}/certs/server.key"
       },
       "cwd": "${workspaceFolder}"
     }

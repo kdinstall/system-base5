@@ -35,7 +35,7 @@ Goアプリは `playbooks/app/webapp` を単独プロジェクトとして管理
 - NodeSource リポジトリ経由で **Node.js** をインストール（デプロイ時の CSS ビルド用）
 - **Ansible** をインストール（コンテナインストール用）
 - `root` ユーザーで `kdinstall-webapp` サービスを実行（Docker コマンド実行のため）
-- `kdinstall-webapp` を有効化し、既定では `http://<server>:8080` で待ち受け（リッスンポートは `playbooks/app/main.yml` の `app_port` で変更し、再デプロイで反映）
+- `kdinstall-webapp` を有効化し、既定では `https://<server>:58080` で待ち受け（自己署名SSL証明書を使用、リッスンポートは `playbooks/app/main.yml` の `app_port` で変更し、再デプロイで反映）
 
 # 使い方
 
@@ -74,11 +74,12 @@ curl -fsSL https://raw.githubusercontent.com/kdinstall/system-base5/master/test/
 ```bash
 systemctl status docker --no-pager
 systemctl status kdinstall-webapp --no-pager
-curl -fsSL -o /dev/null -w "%{http_code}\n" http://localhost:8080/containers
+curl -k -fsSL -o /dev/null -w "%{http_code}\n" https://localhost:58080/containers
 ```
 
 - `kdinstall-webapp` が `active` であれば、作業ディレクトリは既定で `/opt/kdinstall/webapp` です
 - `/containers` はコンテナ一覧の HTML を返します（HTTP 200 を想定）
+- **注意**: `curl -k` オプションは自己署名証明書を信頼します
 
 ### Webブラウザからのアクセス
 
@@ -86,10 +87,21 @@ curl -fsSL -o /dev/null -w "%{http_code}\n" http://localhost:8080/containers
 
 サーバのホスト名やIPアドレスが `example.com` または `192.168.1.100` の場合:
 
-- **コンテナ一覧（トップ相当）:** http://example.com:8080/containers または http://192.168.1.100:8080/containers  
-  （`http://...:8080/` にアクセスすると `/containers` へリダイレクトされます）
+- **コンテナ一覧（トップ相当）:** https://example.com:58080/containers または https://192.168.1.100:58080/containers  
+  （`https://...:58080/` にアクセスすると `/containers` へリダイレクトされます）
 - **インストール画面:** `.../install`
 - **コンテナログ表示:** `.../containers/<id>/logs`
+
+**注意**: 自己署名SSL証明書を使用しているため、ブラウザで証明書の警告が表示されます。警告を承認すると正常にアクセスできます。
+
+### SSL証明書について
+
+アプリケーションはHTTPSで配信されます（ポート58080）：
+
+- **証明書**: `/opt/kdinstall/certs/server.crt`（10年有効）
+- **秘密鍵**: `/opt/kdinstall/certs/server.key`
+- 自己署名証明書のため、ブラウザで警告が表示されますが動作には問題ありません
+- Let's Encrypt等の正式な証明書を使用する場合は、systemdサービスの環境変数 `SSL_CERT_PATH` と `SSL_KEY_PATH` を変更してください
 
 ## Goアプリの管理
 
