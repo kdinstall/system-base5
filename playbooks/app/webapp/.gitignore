@@ -11,9 +11,6 @@ public/assets/js/preline.js
 node_modules/
 package-lock.json
 
-# Go
-go.sum
-
 # Editor
 .vscode/
 .idea/
