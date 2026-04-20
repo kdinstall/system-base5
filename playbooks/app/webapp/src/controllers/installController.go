@@ -2,13 +2,17 @@ package controllers
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 	"webapp/src/config"
 	"webapp/src/lib/ansible"
+	"webapp/src/lib/job"
 	"webapp/src/lib/playbook"
 	tmpl "webapp/src/lib/template"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // InstallController はコンテナインストールのアクションを提供する
@@ -70,6 +74,20 @@ func (ic *InstallController) Config(c *gin.Context) {
 
 // Execute はPlaybookを実行してコンテナをインストールする (POST /install/execute)
 func (ic *InstallController) Execute(c *gin.Context) {
+	jobManager := job.GetManager()
+
+	// Check if there's already a running job
+	if runningJob := jobManager.GetRunningJob(); runningJob != nil {
+		c.HTML(http.StatusConflict, "install.html", tmpl.MergeData(gin.H{
+			"page_title":       "コンテナインストール",
+			"active_page":      "install",
+			"error":            "既にインストールが実行中です。完了するまでお待ちください。",
+			"running_job_id":   runningJob.ID,
+			"running_job_name": runningJob.Name,
+		}))
+		return
+	}
+
 	playbookName := c.PostForm("playbook")
 	downloadURL := c.PostForm("download_url")
 	downloadType := c.PostForm("download_type") // "git" or "url"
@@ -133,17 +151,120 @@ func (ic *InstallController) Execute(c *gin.Context) {
 		}
 	}
 
-	// Playbook実行
-	playbookPath := playbook.GetPlaybookPath(basePath, playbookName)
-	result := ansible.RunPlaybookWithConnection(playbookPath, "local", extraVars)
+	// Generate job ID
+	jobID := uuid.New().String()
 
-	// 結果を表示
-	c.HTML(http.StatusOK, "install.html", tmpl.MergeData(gin.H{
-		"page_title":    "コンテナインストール",
-		"active_page":   "install",
-		"playbooks":     nil, // インストール結果表示時は一覧表示しない
-		"result":        result,
-		"playbook_name": playbookName,
-		"show_result":   true,
+	// Create job
+	jobManager.CreateJob(jobID, playbookName)
+
+	// Run playbook asynchronously
+	playbookPath := playbook.GetPlaybookPath(basePath, playbookName)
+	ansible.RunPlaybookAsync(jobID, playbookPath, "local", extraVars)
+
+	// Redirect to job detail page
+	c.Redirect(http.StatusFound, "/install/jobs/"+jobID)
+}
+
+// JobList displays a list of all jobs (GET /install/jobs)
+func (ic *InstallController) JobList(c *gin.Context) {
+	jobManager := job.GetManager()
+	jobs := jobManager.ListJobs()
+
+	c.HTML(http.StatusOK, "job_list.html", tmpl.MergeData(gin.H{
+		"page_title":  "ジョブ一覧",
+		"active_page": "install",
+		"jobs":        jobs,
 	}))
+}
+
+// JobDetail displays details of a specific job (GET /install/jobs/:id)
+func (ic *InstallController) JobDetail(c *gin.Context) {
+	jobID := c.Param("id")
+	jobManager := job.GetManager()
+	j := jobManager.GetJob(jobID)
+
+	if j == nil {
+		c.HTML(http.StatusNotFound, "404.html", tmpl.MergeData(gin.H{
+			"page_title": "Not Found",
+		}))
+		return
+	}
+
+	c.HTML(http.StatusOK, "job_detail.html", tmpl.MergeData(gin.H{
+		"page_title":  "ジョブ詳細",
+		"active_page": "install",
+		"job":         j,
+	}))
+}
+
+// JobLogs returns job logs as JSON (GET /install/jobs/:id/logs?offset=N)
+func (ic *InstallController) JobLogs(c *gin.Context) {
+	jobID := c.Param("id")
+	offsetStr := c.DefaultQuery("offset", "0")
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil {
+		offset = 0
+	}
+
+	jobManager := job.GetManager()
+	j := jobManager.GetJob(jobID)
+
+	if j == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Job not found",
+		})
+		return
+	}
+
+	logs := jobManager.GetLogs(jobID, offset)
+
+	c.JSON(http.StatusOK, gin.H{
+		"logs":   logs,
+		"offset": offset + len(logs),
+	})
+}
+
+// JobStatus returns job status as JSON (GET /install/jobs/:id/status)
+func (ic *InstallController) JobStatus(c *gin.Context) {
+	jobID := c.Param("id")
+	jobManager := job.GetManager()
+	j := jobManager.GetJob(jobID)
+
+	if j == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Job not found",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":         j.ID,
+		"name":       j.Name,
+		"status":     j.Status,
+		"start_time": j.StartTime.Format(time.RFC3339),
+		"end_time":   j.EndTime.Format(time.RFC3339),
+		"error":      j.Error,
+	})
+}
+
+// GetRunningJob returns the currently running job as JSON (GET /install/jobs/running)
+func (ic *InstallController) GetRunningJob(c *gin.Context) {
+	jobManager := job.GetManager()
+	runningJob := jobManager.GetRunningJob()
+
+	if runningJob == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"running": false,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"running": true,
+		"job": gin.H{
+			"id":     runningJob.ID,
+			"name":   runningJob.Name,
+			"status": runningJob.Status,
+		},
+	})
 }

@@ -55,4 +55,11 @@ func registerInstallRouter(router *gin.Engine) {
 	router.GET("/install", ic.Index)
 	router.GET("/install/:name/config", ic.Config)
 	router.POST("/install/execute", ic.Execute)
+
+	// ジョブ管理
+	router.GET("/install/jobs", ic.JobList)
+	router.GET("/install/jobs/running", ic.GetRunningJob)
+	router.GET("/install/jobs/:id", ic.JobDetail)
+	router.GET("/install/jobs/:id/logs", ic.JobLogs)
+	router.GET("/install/jobs/:id/status", ic.JobStatus)
 }

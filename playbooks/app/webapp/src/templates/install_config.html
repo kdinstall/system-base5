@@ -21,6 +21,21 @@
 </div>
 {{- end }}
 
+<!-- 実行中ジョブ警告 (JavaScriptで動的に表示) -->
+<div id="running-job-alert" class="mb-4 bg-yellow-50 border border-yellow-200 text-sm text-yellow-800 rounded-lg p-4 hidden" role="alert">
+  <div class="flex items-start gap-x-2">
+    <span class="material-symbols-outlined text-yellow-500 shrink-0" style="font-size:18px">warning</span>
+    <div>
+      <p class="font-semibold mb-1">インストール実行中</p>
+      <p>現在、別のインストールが実行中です。完了するまでお待ちください。</p>
+      <a id="running-job-link" href="#" class="inline-flex items-center gap-x-1 text-yellow-900 hover:text-yellow-950 font-medium mt-2">
+        <span class="material-symbols-outlined" style="font-size:14px">visibility</span>
+        実行中のジョブを確認
+      </a>
+    </div>
+  </div>
+</div>
+
 <!-- 環境変数設定フォーム -->
 <div class="flex flex-col bg-white border border-gray-200 shadow-sm rounded-xl overflow-hidden">
   <div class="px-6 py-4 border-b border-gray-200">
@@ -81,8 +96,9 @@
       </div>
 
       <div class="mt-6 pt-6 border-t border-gray-200 flex items-center gap-x-3">
-        <button type="submit"
-                class="py-2.5 px-4 inline-flex items-center gap-x-1.5 text-sm font-semibold rounded-lg border border-transparent bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 focus:outline-hidden focus:bg-blue-700 transition-colors">
+        <button id="install-button"
+                type="submit"
+                class="py-2.5 px-4 inline-flex items-center gap-x-1.5 text-sm font-semibold rounded-lg border border-transparent bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 focus:outline-hidden focus:bg-blue-700 transition-colors disabled:opacity-50 disabled:pointer-events-none">
           <span class="material-symbols-outlined" style="font-size:16px">download</span>
           インストール実行
         </button>
@@ -109,6 +125,47 @@
     </form>
   </div>
 </div>
+
+<script>
+(function() {
+  const installButton = document.getElementById('install-button');
+  const runningJobAlert = document.getElementById('running-job-alert');
+  const runningJobLink = document.getElementById('running-job-link');
+
+  // Check for running job on page load
+  function checkRunningJob() {
+    fetch('/install/jobs/running')
+      .then(response => response.json())
+      .then(data => {
+        if (data.running) {
+          // Disable install button
+          installButton.disabled = true;
+          
+          // Show warning alert
+          runningJobAlert.classList.remove('hidden');
+          
+          // Update link to running job
+          runningJobLink.href = '/install/jobs/' + data.job.id;
+        } else {
+          // Enable install button
+          installButton.disabled = false;
+          
+          // Hide warning alert
+          runningJobAlert.classList.add('hidden');
+        }
+      })
+      .catch(error => {
+        console.error('Failed to check running job:', error);
+      });
+  }
+
+  // Check on page load
+  checkRunningJob();
+
+  // Check periodically (every 3 seconds) in case a job starts from another tab
+  setInterval(checkRunningJob, 3000);
+})();
+</script>
 
 {{ template "footer" . }}
 {{ end }}

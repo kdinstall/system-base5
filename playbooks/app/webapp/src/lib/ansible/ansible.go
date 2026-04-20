@@ -1,11 +1,15 @@
 package ansible
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+
+	"webapp/src/lib/job"
 )
 
 // PlaybookResult はPlaybook実行結果を保持する
@@ -131,4 +135,100 @@ func FormatPlaybookOutput(output string) string {
 	output = strings.ReplaceAll(output, "\x1b[36m", "")
 
 	return output
+}
+
+// RunPlaybookAsync runs an Ansible playbook asynchronously in a goroutine
+// jobID: unique job identifier for logging
+// playbookPath: path to the playbook file
+// connection: connection type (e.g., "local")
+// extraVars: extra variables to pass to ansible-playbook
+func RunPlaybookAsync(jobID, playbookPath, connection string, extraVars []string) {
+	go func() {
+		jobManager := job.GetManager()
+
+		// Update status to running
+		jobManager.UpdateStatus(jobID, "running")
+		jobManager.AppendLog(jobID, fmt.Sprintf("Starting playbook: %s", playbookPath))
+
+		// Create context for cancellation support
+		ctx, cancel := context.WithCancel(context.Background())
+		jobManager.SetCancelFunc(jobID, cancel)
+
+		// Build command arguments
+		args := []string{"-i", "localhost,", "--connection", connection, playbookPath}
+		if len(extraVars) > 0 {
+			args = append(args, "-e", strings.Join(extraVars, " "))
+		}
+
+		// Create command with context
+		cmd := exec.CommandContext(ctx, "ansible-playbook", args...)
+
+		// Set environment variables
+		env := os.Environ()
+		env = append(env, "ANSIBLE_LOCAL_TEMP=/tmp/ansible")
+		env = append(env, "ANSIBLE_REMOTE_TEMP=/tmp/ansible")
+		env = append(env, "ANSIBLE_NOCOLOR=True")
+		cmd.Env = env
+
+		// Get stdout and stderr pipes
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			jobManager.SetError(jobID, fmt.Sprintf("Failed to create stdout pipe: %v", err))
+			jobManager.UpdateStatus(jobID, "failed")
+			return
+		}
+
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			jobManager.SetError(jobID, fmt.Sprintf("Failed to create stderr pipe: %v", err))
+			jobManager.UpdateStatus(jobID, "failed")
+			return
+		}
+
+		// Start the command
+		if err := cmd.Start(); err != nil {
+			jobManager.SetError(jobID, fmt.Sprintf("Failed to start ansible-playbook: %v", err))
+			jobManager.UpdateStatus(jobID, "failed")
+			return
+		}
+
+		// Read stdout in a goroutine
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := scanner.Text()
+				jobManager.AppendLog(jobID, line)
+			}
+		}()
+
+		// Read stderr in a goroutine
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				line := scanner.Text()
+				jobManager.AppendLog(jobID, "[STDERR] "+line)
+			}
+		}()
+
+		// Wait for command to complete
+		err = cmd.Wait()
+
+		// Check if context was cancelled
+		if ctx.Err() == context.Canceled {
+			jobManager.AppendLog(jobID, "Job was cancelled")
+			jobManager.UpdateStatus(jobID, "failed")
+			jobManager.SetError(jobID, "Job was cancelled by user")
+			return
+		}
+
+		// Update final status
+		if err != nil {
+			jobManager.AppendLog(jobID, fmt.Sprintf("Playbook execution failed: %v", err))
+			jobManager.SetError(jobID, err.Error())
+			jobManager.UpdateStatus(jobID, "failed")
+		} else {
+			jobManager.AppendLog(jobID, "Playbook execution completed successfully")
+			jobManager.UpdateStatus(jobID, "completed")
+		}
+	}()
 }

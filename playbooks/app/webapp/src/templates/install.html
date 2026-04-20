@@ -4,11 +4,18 @@
 <!-- ページヘッダ -->
 <div class="flex items-center justify-between mb-6">
   <h1 class="text-2xl font-bold text-gray-800">コンテナインストール</h1>
-  <a href="/containers"
-     class="py-2 px-3 inline-flex items-center gap-x-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
-    <span class="material-symbols-outlined" style="font-size:16px">view_list</span>
-    コンテナ一覧
-  </a>
+  <div class="flex items-center gap-x-2">
+    <a href="/install/jobs"
+       class="py-2 px-3 inline-flex items-center gap-x-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
+      <span class="material-symbols-outlined" style="font-size:16px">history</span>
+      ジョブ一覧
+    </a>
+    <a href="/containers"
+       class="py-2 px-3 inline-flex items-center gap-x-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
+      <span class="material-symbols-outlined" style="font-size:16px">view_list</span>
+      コンテナ一覧
+    </a>
+  </div>
 </div>
 
 {{- if .flash }}
@@ -26,69 +33,22 @@
 {{- end }}
 
 {{- if .error }}
-<div class="mb-4 bg-red-50 border border-red-200 text-sm text-red-800 rounded-lg p-4 flex items-center gap-x-2" role="alert">
-  <span class="material-symbols-outlined text-red-500 shrink-0" style="font-size:18px">error</span>
-  {{ .error }}
-</div>
-{{- end }}
-
-{{- if .show_result }}
-<!-- インストール結果 -->
-<div class="mb-6">
-  <a href="/install"
-     class="py-2 px-3 inline-flex items-center gap-x-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors mb-4">
-    <span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>
-    インストール画面に戻る
-  </a>
-
-  <div class="flex flex-col bg-white border border-gray-200 shadow-sm rounded-xl overflow-hidden">
-    <div class="px-6 py-4 border-b border-gray-200">
-      <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-x-2">
-        {{- if .result.Success }}
-        <span class="material-symbols-outlined text-teal-500" style="font-size:24px">check_circle</span>
-        インストール成功
-        {{- else }}
-        <span class="material-symbols-outlined text-red-500" style="font-size:24px">error</span>
-        インストール失敗
-        {{- end }}
-      </h2>
-      <p class="text-sm text-gray-500 mt-1">Playbook: {{ .playbook_name }}</p>
-    </div>
-
-    <div class="p-6">
-      {{- if .result.Success }}
-      <div class="mb-4 p-4 bg-teal-50 border border-teal-200 rounded-lg">
-        <p class="text-sm text-teal-800 font-semibold mb-2">Ansible Playbookの実行が完了しました。</p>
-        <p class="text-sm text-teal-700">
-          コンテナが起動している場合は、
-          <a href="/containers" class="underline font-semibold hover:text-teal-900">コンテナ一覧</a>
-          で確認できます。
-        </p>
-      </div>
-      {{- end }}
-
-      <!-- Ansible出力 -->
-      <div class="mb-4">
-        <h3 class="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-x-2">
-          <span class="material-symbols-outlined" style="font-size:16px">terminal</span>
-          実行ログ
-        </h3>
-        <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed max-h-96">{{ .result.Output }}</pre>
-      </div>
-
-      {{- if .result.Error }}
-      <div>
-        <h3 class="text-sm font-semibold text-red-700 mb-2 flex items-center gap-x-2">
-          <span class="material-symbols-outlined" style="font-size:16px">error</span>
-          エラー出力
-        </h3>
-        <pre class="bg-red-900 text-red-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed max-h-96">{{ .result.Error }}</pre>
-      </div>
+<div class="mb-4 bg-red-50 border border-red-200 text-sm text-red-800 rounded-lg p-4" role="alert">
+  <div class="flex items-start gap-x-2">
+    <span class="material-symbols-outlined text-red-500 shrink-0" style="font-size:18px">error</span>
+    <div>
+      <div>{{ .error }}</div>
+      {{- if .running_job_id }}
+      <a href="/install/jobs/{{ .running_job_id }}" class="inline-flex items-center gap-x-1 text-red-900 hover:text-red-950 font-medium mt-2">
+        <span class="material-symbols-outlined" style="font-size:14px">visibility</span>
+        実行中のジョブ ({{ .running_job_name }}) を確認
+      </a>
       {{- end }}
     </div>
   </div>
 </div>
-{{- else }}
+{{- end }}
+
 <!-- デフォルトPlaybook一覧 -->
 {{- if .playbooks }}
 <div class="mb-8">
@@ -194,7 +154,6 @@
     </form>
   </div>
 </div>
-{{- end }}
 
 {{ template "footer" . }}
 {{ end }}
