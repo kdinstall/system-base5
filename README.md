@@ -21,9 +21,13 @@
 
 - Dockerコンテナの一覧表示・起動・停止・再起動・ログ表示
 - Ansible Playbook経由でのコンテナインストール（Nginx, MySQL, PostgreSQL, MongoDB, Redis, Node.js Webアプリ）
+  - **非同期実行**: 長時間のインストール中もブラウザがブロックされない
+  - **リアルタイムログ**: JavaScriptポーリングでログを自動更新
+  - **ジョブ管理**: インストール履歴の一覧表示とステータス確認
+  - **同時実行制限**: 1つのジョブのみ実行可能（リソース競合防止）
 - インストール時の環境変数設定（DB接続情報等を動的に入力）
 - URL指定でのカスタムPlaybookダウンロード・インストール
-- 静的アセットは `/assets`、コンテナ一覧は `/containers`、インストール画面は `/install`（`/` は `/containers` へリダイレクト）
+- 静的アセットは `/assets`、コンテナ一覧は `/containers`、インストール画面は `/install`、ジョブ一覧は `/install/jobs`（`/` は `/containers` へリダイレクト）
 
 Goアプリは `playbooks/app/webapp` を単独プロジェクトとして管理し、playbook 実行時に `/opt/kdinstall/webapp` へ配備します。デプロイ時に **Node.js で Tailwind をビルド**（`npm run build`）したうえで `go build` します（`go.mod` の Go バージョン要件に合わせてビルドします）。
 

@@ -19,12 +19,14 @@ webapp/
 │   │   └── config.go       # 環境変数読み込み
 │   ├── controllers/
 │   │   ├── containerController.go    # コンテナ操作
-│   │   └── installController.go      # Playbook実行
+│   │   └── installController.go      # Playbook実行、ジョブ管理
 │   ├── lib/
 │   │   ├── ansible/
-│   │   │   └── ansible.go            # Ansible CLI wrapper
+│   │   │   └── ansible.go            # Ansible CLI wrapper（同期・非同期）
 │   │   ├── docker/
 │   │   │   └── docker.go             # Docker CLI wrapper
+│   │   ├── job/
+│   │   │   └── manager.go            # ジョブ管理（シングルトン）
 │   │   ├── playbook/
 │   │   │   └── manager.go            # Playbook管理
 │   │   └── template/
@@ -37,7 +39,9 @@ webapp/
 │   │   ├── containers.html           # コンテナ一覧
 │   │   ├── container_logs.html       # ログ表示
 │   │   ├── install.html              # インストール画面
-│   │   └── install_config.html       # 環境変数設定画面
+│   │   ├── install_config.html       # 環境変数設定画面
+│   │   ├── job_list.html             # ジョブ一覧
+│   │   └── job_detail.html           # ジョブ詳細（リアルタイムログ）
 │   └── style/
 │       └── input.css                 # Tailwind CSS入力
 ├── public/
@@ -69,7 +73,12 @@ webapp/
 - **InstallController**: Playbookインストールのエンドポイント
   - `Index()`: Playbook一覧表示
   - `Config()`: 環境変数設定画面表示
-  - `Execute()`: Playbook実行
+  - `Execute()`: Playbook非同期実行
+  - `JobList()`: ジョブ一覧表示
+  - `JobDetail()`: ジョブ詳細・ログ表示
+  - `JobLogs()`: ジョブログ増分取得（JSON）
+  - `JobStatus()`: ジョブステータス取得（JSON）
+  - `GetRunningJob()`: 実行中ジョブ取得（JSON）
 
 #### Templates
 - Go標準の`html/template`を使用
@@ -81,6 +90,37 @@ webapp/
 **責務**: ドメインロジック、外部コマンド実行の抽象化
 
 #### Libraries
+
+**job パッケージ**
+```go
+type Job struct {
+    ID         string
+    Name       string
+    Status     string // pending, running, completed, failed
+    StartTime  time.Time
+    EndTime    time.Time
+    Logs       []string
+    Error      string
+    CancelFunc context.CancelFunc
+    mu         sync.Mutex
+}
+
+type JobManager struct {
+    jobs map[string]*Job
+    mu   sync.RWMutex
+}
+
+func GetManager() *JobManager // シングルトン
+func (jm *JobManager) CreateJob(id, name string) *Job
+func (jm *JobManager) GetJob(id string) (*Job, bool)
+func (jm *JobManager) GetAllJobs() []*Job
+func (jm *JobManager) GetRunningJob() *Job
+func (jm *JobManager) DeleteJob(id string)
+func (j *Job) AppendLog(line string)
+func (j *Job) UpdateStatus(status string)
+func (j *Job) SetError(err string)
+func (j *Job) GetLogs(offset int) []string
+```
 
 **ansible パッケージ**
 ```go
@@ -95,6 +135,13 @@ func RunPlaybookWithConnection(
     connection string, 
     extraVars []string
 ) *PlaybookResult
+
+func RunPlaybookAsync(
+    jobID string,
+    playbookPath string,
+    connection string,
+    extraVars []string
+) error
 ```
 
 **docker パッケージ**
@@ -183,7 +230,7 @@ cmd := exec.Command("ansible-playbook",
 9. ブラウザ表示
 ```
 
-### Playbookインストールの流れ（環境変数あり）
+### Playbookインストールの流れ（非同期・環境変数あり）
 
 ```
 1. ブラウザ
@@ -203,15 +250,67 @@ cmd := exec.Command("ansible-playbook",
 7. install_config.html表示（入力フォーム）
    ↓ ユーザーが環境変数入力
 8. POST /install/execute
-   ↓ env_* フィールド抽出
+   ↓ 
 9. InstallController.Execute()
+   ├─ 実行中ジョブチェック (GetRunningJob)
+   ├─ ジョブID生成 (UUID)
+   ├─ ジョブ作成 (jobManager.CreateJob)
    ├─ extraVars配列構築
-   └─ ansible.RunPlaybookWithConnection()
-      ↓ exec.Command("ansible-playbook -e key=value")
-10. Ansible Engine
+   └─ ansible.RunPlaybookAsync()
+      ├─ ゴルーチン起動
+      ├─ context.WithCancel()
+      ├─ exec.Command("ansible-playbook -e key=value")
+      ├─ StdoutPipe/StderrPipe読み取り
+      └─ ログを1行ずつ job.AppendLog()
+10. 303 Redirect → /install/jobs/:id
+11. job_detail.html表示
+    ├─ 初期ログ表示
+    └─ JavaScript 1秒ごとポーリング
+       ├─ GET /install/jobs/:id/status
+       ├─ GET /install/jobs/:id/logs?offset=N
+       └─ ステータスが完了/失敗まで継続
+12. Ansible Engine (バックグラウンド)
     ├─ Playbookタスク実行
-    └─ Dockerコンテナ作成
-11. 実行結果表示（install.html）
+    ├─ Dockerコンテナ作成
+    └─ ジョブステータス更新 (completed/failed)
+```
+
+### ジョブ管理フロー
+
+```
+1. ジョブ一覧画面アクセス
+   ↓ GET /install/jobs
+2. InstallController.JobList()
+   ↓ jobManager.GetAllJobs()
+3. job_list.html表示
+   ├─ ジョブID、名前、ステータス
+   ├─ 開始・終了時刻
+   └─ 詳細リンク
+
+4. ジョブ詳細画面アクセス
+   ↓ GET /install/jobs/:id
+5. InstallController.JobDetail()
+   ↓ jobManager.GetJob(id)
+6. job_detail.html表示
+   ├─ 初期ログレンダリング（{{ range .job.Logs }}）
+   └─ JavaScript自動更新
+      ├─ 1秒ごとにステータス取得
+      ├─ 新規ログを増分取得（offset指定）
+      ├─ DOM更新（ログ追記）
+      └─ completed/failed で停止
+
+7. 実行中ジョブ確認
+   ↓ GET /install/jobs/running
+8. InstallController.GetRunningJob()
+   ↓ jobManager.GetRunningJob()
+9. JSON レスポンス
+   ├─ running: true/false
+   └─ job: { id, name, status }
+
+10. インストール画面
+    ├─ JavaScript 3秒ごとにポーリング
+    ├─ 実行中ジョブがあればボタン無効化
+    └─ 警告メッセージ表示
 ```
 
 ## コンポーネント設計

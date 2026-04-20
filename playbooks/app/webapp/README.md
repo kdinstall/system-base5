@@ -13,11 +13,14 @@ Dockerコンテナを管理するためのWebアプリケーション。Ansible 
 ## 機能
 
 - Dockerコンテナ一覧表示・起動停止
-- Ansible Playbook経由でのコンテナインストール
-- デフォルトPlaybookテンプレート（Nginx, MySQL, Redis, PostgreSQL, MongoDB）
+- Ansible Playbook経由でのコンテナインストール（**非同期実行**）
+- **ジョブ管理**: インストール履歴の一覧表示とステータス確認
+- **リアルタイムログ表示**: JavaScriptポーリングで自動更新
+- デフォルトPlaybookテンプレート（Nginx, MySQL, Redis, PostgreSQL, MongoDB, Node.js Webapp）
 - URL指定でのPlaybookダウンロード・インストール
 - 再インストール機能（Playbook再実行）
 - コンテナログ表示
+- **同時実行制限**: 1つのジョブのみ実行可能（リソース競合防止）
 
 ## 開発
 

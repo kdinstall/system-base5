@@ -214,7 +214,7 @@
 ---
 
 #### POST `/install/execute`
-Playbookを実行してコンテナをインストール
+Playbookを非同期実行してコンテナをインストール
 
 **コントローラー**: `InstallController.Execute()`
 
@@ -241,41 +241,216 @@ download_url=https://github.com/user/repo.git
 download_type=git
 ```
 
-**レスポンス**: HTML (install.html)
-
-**データ**:
-```go
-{
-    "page_title": "コンテナインストール",
-    "active_page": "install",
-    "playbooks": nil,
-    "result": &ansible.PlaybookResult{
-        Success: true,
-        Output: "PLAY [localhost] ***...\n...",
-        Error: ""
-    },
-    "playbook_name": "nodejs-webapp",
-    "show_result": true
-}
-```
+**レスポンス**: 303 Redirect to `/install/jobs/:id`
 
 **処理フロー**:
-1. Playbook名またはダウンロードURL取得
-2. URL指定の場合、Git/HTTPでダウンロード
-3. `env_` プレフィックスの環境変数を抽出
-4. `ansible-playbook` コマンド実行
+1. 実行中のジョブがないか確認（1つのジョブのみ実行可能）
+2. Playbook名またはダウンロードURL取得
+3. URL指定の場合、Git/HTTPでダウンロード
+4. `env_` プレフィックスの環境変数を抽出
+5. ジョブIDを生成（UUID）
+6. ジョブを作成してジョブマネージャーに登録
+7. 非同期で `ansible-playbook` コマンド実行
    ```bash
    ansible-playbook -i localhost, --connection local \
      /path/to/main.yml \
      -e "container_name=my-webapp" \
      -e "db_password=secret123"
    ```
-5. 結果を表示
+8. ジョブ詳細画面へリダイレクト
 
 **エラー**:
+- 実行中のジョブがある場合: 422 Unprocessable Entity（エラーメッセージ表示）
 - Playbookが見つからない: 422 Unprocessable Entity
 - ダウンロード失敗: 422 Unprocessable Entity
-- Ansible実行失敗: 成功時と同じページでエラー表示
+
+---
+
+### ジョブ管理
+
+#### GET `/install/jobs`
+インストールジョブ一覧を表示
+
+**コントローラー**: `InstallController.JobList()`
+
+**レスポンス**: HTML (job_list.html)
+
+**データ**:
+```go
+{
+    "page_title": "ジョブ一覧",
+    "active_page": "install",
+    "jobs": []Job{
+        {
+            ID: "550e8400-e29b-41d4-a716-446655440000",
+            Name: "nginx",
+            Status: "completed",
+            StartTime: time.Time{...},
+            EndTime: time.Time{...},
+            Logs: []string{...},
+            Error: ""
+        },
+        // ...
+    }
+}
+```
+
+**ステータス値**:
+- `pending`: 待機中
+- `running`: 実行中
+- `completed`: 完了
+- `failed`: 失敗
+
+---
+
+#### GET `/install/jobs/:id`
+ジョブ詳細とリアルタイムログ表示
+
+**コントローラー**: `InstallController.JobDetail()`
+
+**パラメータ**:
+- `id` (path): ジョブID（UUID）
+
+**レスポンス**: HTML (job_detail.html)
+
+**データ**:
+```go
+{
+    "page_title": "ジョブ詳細",
+    "active_page": "install",
+    "job": Job{
+        ID: "550e8400-e29b-41d4-a716-446655440000",
+        Name: "nginx",
+        Status: "running",
+        StartTime: time.Time{...},
+        EndTime: time.Time{...},
+        Logs: []string{
+            "PLAY [localhost] ***...",
+            "TASK [Gathering Facts] ***...",
+            // ...
+        },
+        Error: ""
+    }
+}
+```
+
+**機能**:
+- JavaScript で1秒ごとにステータスとログをポーリング
+- 新しいログを増分取得して表示
+- ステータスが `completed` または `failed` になるまで自動更新
+
+**エラー**:
+- ジョブが存在しない場合: 404ページ
+
+---
+
+#### GET `/install/jobs/:id/logs`
+ジョブのログを増分取得（JSON）
+
+**コントローラー**: `InstallController.JobLogs()`
+
+**パラメータ**:
+- `id` (path): ジョブID
+- `offset` (query): 取得開始位置（デフォルト: 0）
+
+**レスポンス**: JSON
+
+```json
+{
+  "logs": [
+    "TASK [Install Docker] ***...",
+    "ok: [localhost]",
+    "PLAY RECAP ***..."
+  ]
+}
+```
+
+**使用例**:
+```
+GET /install/jobs/550e8400-e29b-41d4-a716-446655440000/logs?offset=10
+```
+
+offset=10 の場合、11行目以降のログを返す（JavaScriptで既に表示したログをスキップ）
+
+**エラー**:
+- ジョブが存在しない場合: 404 Not Found
+
+---
+
+#### GET `/install/jobs/:id/status`
+ジョブのステータスを取得（JSON）
+
+**コントローラー**: `InstallController.JobStatus()`
+
+**パラメータ**:
+- `id` (path): ジョブID
+
+**レスポンス**: JSON
+
+```json
+{
+  "status": "running",
+  "start_time": "2026-04-20T10:30:00Z",
+  "end_time": null,
+  "error": ""
+}
+```
+
+**ステータスが completed の例**:
+```json
+{
+  "status": "completed",
+  "start_time": "2026-04-20T10:30:00Z",
+  "end_time": "2026-04-20T10:32:15Z",
+  "error": ""
+}
+```
+
+**ステータスが failed の例**:
+```json
+{
+  "status": "failed",
+  "start_time": "2026-04-20T10:30:00Z",
+  "end_time": "2026-04-20T10:31:30Z",
+  "error": "ansible-playbook command failed with exit code 2"
+}
+```
+
+**エラー**:
+- ジョブが存在しない場合: 404 Not Found
+
+---
+
+#### GET `/install/jobs/running`
+現在実行中のジョブを取得（JSON）
+
+**コントローラー**: `InstallController.GetRunningJob()`
+
+**レスポンス**: JSON
+
+**実行中のジョブがある場合**:
+```json
+{
+  "running": true,
+  "job": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "mysql",
+    "status": "running"
+  }
+}
+```
+
+**実行中のジョブがない場合**:
+```json
+{
+  "running": false,
+  "job": null
+}
+```
+
+**用途**:
+- インストール画面でインストールボタンの有効/無効を制御
+- 設定画面で実行中警告を表示
 
 ---
 

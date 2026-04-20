@@ -87,16 +87,20 @@ webapp/
 │   │   ├── containerController.go
 │   │   └── installController.go
 │   ├── lib/                       # ビジネスロジック
-│   │   ├── ansible/
-│   │   ├── docker/
-│   │   ├── playbook/
-│   │   └── template/
+│   │   ├── ansible/               # Ansible CLI wrapper
+│   │   ├── docker/                # Docker CLI wrapper
+│   │   ├── job/                   # ジョブ管理（非同期実行）
+│   │   ├── playbook/              # Playbook管理
+│   │   └── template/              # テンプレート処理
 │   └── templates/                 # HTMLテンプレート
 │       ├── header.html
 │       ├── footer.html
 │       ├── containers.html
+│       ├── container_logs.html
 │       ├── install.html
-│       └── install_config.html
+│       ├── install_config.html
+│       ├── job_list.html          # ジョブ一覧
+│       └── job_detail.html        # ジョブ詳細（リアルタイムログ）
 ├── public/                        # 静的ファイル
 │   └── assets/
 │       ├── css/
@@ -268,6 +272,178 @@ go install github.com/cosmtrek/air@latest
 
 # 自動リロード
 air
+```
+
+## ジョブ管理システムの実装
+
+### 概要
+
+バージョン1.1以降、Playbookの実行は非同期で行われます。これにより、長時間のインストール中もブラウザがブロックされず、リアルタイムでログを確認できます。
+
+### アーキテクチャ
+
+```
+InstallController.Execute()
+  ↓
+jobManager.CreateJob(id, name)
+  ↓
+ansible.RunPlaybookAsync(jobID, ...)
+  ↓ (goroutine起動)
+context.WithCancel() → cmd.Run()
+  ↓
+StdoutPipe/StderrPipe → bufio.Scanner
+  ↓
+job.AppendLog(line) ← 1行ずつ追加
+  ↓
+job.UpdateStatus("completed" or "failed")
+```
+
+### ジョブマネージャーの使い方
+
+```go
+import "webapp/src/lib/job"
+
+// シングルトン取得
+jm := job.GetManager()
+
+// ジョブ作成
+jobID := uuid.New().String()
+j := jm.CreateJob(jobID, "nginx")
+
+// ジョブ取得
+job, exists := jm.GetJob(jobID)
+if !exists {
+    return errors.New("job not found")
+}
+
+// 全ジョブ取得
+allJobs := jm.GetAllJobs()
+
+// 実行中ジョブ取得（1つのみ）
+runningJob := jm.GetRunningJob()
+if runningJob != nil {
+    return errors.New("another job is running")
+}
+
+// ジョブ削除
+jm.DeleteJob(jobID)
+```
+
+### Jobオブジェクトの操作
+
+```go
+// ログ追加（スレッドセーフ）
+job.AppendLog("TASK [Install Docker] ***")
+
+// ステータス更新
+job.UpdateStatus("running")  // pending, running, completed, failed
+
+// エラー設定
+job.SetError("ansible-playbook command failed with exit code 2")
+
+// ログ取得（offset指定で増分取得）
+logs := job.GetLogs(10) // 11行目以降を取得
+```
+
+### 非同期Playbook実行
+
+```go
+import (
+    "webapp/src/lib/ansible"
+    "webapp/src/lib/job"
+    "github.com/google/uuid"
+)
+
+// ジョブID生成
+jobID := uuid.New().String()
+
+// ジョブ作成
+jm := job.GetManager()
+jm.CreateJob(jobID, playbookName)
+
+// 非同期実行
+err := ansible.RunPlaybookAsync(
+    jobID,
+    playbookPath,
+    "local",
+    []string{"container_name=nginx", "port=8080"},
+)
+if err != nil {
+    return err
+}
+
+// すぐにリダイレクト（実行はバックグラウンド）
+c.Redirect(http.StatusSeeOther, fmt.Sprintf("/install/jobs/%s", jobID))
+```
+
+### フロントエンドのポーリング
+
+```javascript
+// job_detail.html のJavaScript例
+
+let logOffset = 0;
+const jobID = "550e8400-e29b-41d4-a716-446655440000";
+
+// 1秒ごとにステータスとログを取得
+setInterval(async () => {
+    // ステータス取得
+    const statusRes = await fetch(`/install/jobs/${jobID}/status`);
+    const statusData = await statusRes.json();
+    
+    // ステータス表示更新
+    updateStatusBadge(statusData.status);
+    
+    // ログ取得（増分）
+    const logsRes = await fetch(`/install/jobs/${jobID}/logs?offset=${logOffset}`);
+    const logsData = await logsRes.json();
+    
+    // 新規ログを追加
+    if (logsData.logs && logsData.logs.length > 0) {
+        logsData.logs.forEach(line => {
+            appendLog(line);
+            logOffset++;
+        });
+    }
+    
+    // 完了/失敗時は停止
+    if (statusData.status === 'completed' || statusData.status === 'failed') {
+        clearInterval(this);
+    }
+}, 1000);
+```
+
+### 1ジョブ制限の実装
+
+```go
+// Execute()の冒頭でチェック
+jm := job.GetManager()
+if runningJob := jm.GetRunningJob(); runningJob != nil {
+    return c.HTML(http.StatusUnprocessableEntity, "install.html", gin.H{
+        "error": fmt.Sprintf("ジョブ '%s' が実行中です", runningJob.Name),
+    })
+}
+```
+
+### テンプレートでのログ表示
+
+```html
+<!-- 初期ログレンダリング（改行を保持） -->
+<pre id="log-content" class="text-sm text-gray-100">
+{{ range .job.Logs }}{{ . }}
+{{ end }}
+</pre>
+
+<!-- 注意：{{- と -}} は空白を削除するため使用しない -->
+```
+
+### 依存関係
+
+```bash
+# UUID生成ライブラリ
+go get github.com/google/uuid
+
+# go.modに追加される
+require github.com/google/uuid v1.6.0
 ```
 
 ## テスト

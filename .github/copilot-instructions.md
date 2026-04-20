@@ -39,7 +39,11 @@ script/start.sh → Docker setup → SSL cert gen → Web app build → systemd 
                                                                          ↓
                                                                   Web UI (:58080 HTTPS)
                                                                          ↓
-                                                              Docker CLI / Ansible execution
+                                                     Docker CLI / Ansible async execution
+                                                                         ↓
+                                                              Job Manager (in-memory)
+                                                                         ↓
+                                                              Real-time log streaming
 ```
 
 ## Technology Stack
@@ -56,10 +60,16 @@ script/start.sh → Docker setup → SSL cert gen → Web app build → systemd 
 - Preline UI (UI components)
 - Node.js (CSS build tool)
 - html/template (Go templating)
+- github.com/google/uuid v1.6.0 (job ID generation)
 
 **Dependencies:**
 - Docker CLI (via os/exec)
 - Ansible CLI (ansible-playbook via os/exec)
+
+**Concurrency:**
+- sync.RWMutex (job map protection)
+- goroutines (async playbook execution)
+- context.Context (cancellation support)
 
 ## Directory Structure
 
@@ -79,7 +89,18 @@ playbooks/
         config/config.go            # Environment variables
         controllers/                # HTTP handlers
         lib/                        # Business logic
+          ansible/ansible.go        # Ansible CLI wrapper (sync/async)
+          docker/docker.go          # Docker CLI wrapper
+          job/manager.go            # Job manager (singleton)
+          playbook/manager.go       # Playbook management
+          template/                 # Template utilities
         templates/                  # HTML templates
+          containers.html           # Container list
+          container_logs.html       # Container logs
+          install.html              # Playbook installation
+          install_config.html       # Variable configuration
+          job_list.html             # Job history
+          job_detail.html           # Job detail with real-time logs
         style/input.css             # Tailwind source
       docs/                         # Detailed documentation
       Makefile                      # Build commands
@@ -113,13 +134,22 @@ playbooks/
 **InstallController** (`src/controllers/installController.go`)
 - `GET /install` - Installation screen (playbook list)
 - `GET /install/:name/config` - Configuration form (reads variables.yml)
-- `POST /install/execute` - Execute playbook with environment variables
+- `POST /install/execute` - Execute playbook asynchronously with environment variables
+- `GET /install/jobs` - Job list (installation history)
+- `GET /install/jobs/:id` - Job detail with real-time logs
+- `GET /install/jobs/:id/logs` - Get job logs incrementally (JSON)
+- `GET /install/jobs/:id/status` - Get job status (JSON)
+- `GET /install/jobs/running` - Get currently running job (JSON)
 
 ### Key Features
 
 - **Preset playbooks**: Nginx, MySQL, PostgreSQL, MongoDB, Redis, Node.js webapp
 - **Dynamic download**: Fetch playbooks from Git URLs or direct YAML files
 - **Variable injection**: POST form fields (`env_*` prefix) → Ansible extra vars
+- **Async execution**: Playbooks run in background via goroutines
+- **Job management**: Track installation history and status in memory
+- **Real-time logs**: JavaScript polling updates logs every second
+- **Single job limit**: Only one installation can run at a time (prevents resource conflicts)
 - **Docker operations**: Execute `docker` commands via `os/exec.Command`
 - **Ansible execution**: Execute `ansible-playbook` via `lib/ansible/ansible.go`
 
@@ -135,10 +165,17 @@ src/
     installController.go            # Playbook execution
   lib/
     docker/docker.go                # Docker CLI wrapper
-    ansible/ansible.go              # Ansible CLI wrapper
+    ansible/ansible.go              # Ansible CLI wrapper (sync/async)
+    job/manager.go                  # Job manager (singleton, in-memory)
     playbook/manager.go             # Playbook download/management
     template/                       # Template utilities
   templates/                        # HTML files
+    containers.html                 # Container list
+    container_logs.html             # Container logs
+    install.html                    # Playbook installation
+    install_config.html             # Variable configuration
+    job_list.html                   # Job history
+    job_detail.html                 # Job detail with real-time logs
   style/
     input.css                       # Tailwind source
     output.css                      # Generated CSS (git-ignored)
@@ -187,6 +224,43 @@ bash script/start.sh -test
 
 ## Implementation Conventions
 
+### Job Management Pattern
+
+**Creating and executing async jobs:**
+```go
+import (
+    "github.com/google/uuid"
+    "webapp/src/lib/job"
+    "webapp/src/lib/ansible"
+)
+
+// Generate job ID
+jobID := uuid.New().String()
+
+// Create job in manager
+jm := job.GetManager()
+jm.CreateJob(jobID, playbookName)
+
+// Execute asynchronously
+err := ansible.RunPlaybookAsync(jobID, playbookPath, "local", extraVars)
+if err != nil {
+    return err
+}
+
+// Redirect to job detail page
+c.Redirect(http.StatusSeeOther, fmt.Sprintf("/install/jobs/%s", jobID))
+```
+
+**Job status checking (single job limit):**
+```go
+jm := job.GetManager()
+if runningJob := jm.GetRunningJob(); runningJob != nil {
+    return c.HTML(http.StatusUnprocessableEntity, "install.html", gin.H{
+        "error": fmt.Sprintf("ジョブ '%s' が実行中です", runningJob.Name),
+    })
+}
+```
+
 ### Ansible Variable Handling
 
 **Reading variables.yml:**
@@ -199,14 +273,14 @@ variables := parseVariablesFile("variables.yml")
 **Passing to Ansible:**
 ```go
 // Form fields: env_container_name, env_db_host, etc.
-extraVars := map[string]string{}
+extraVars := []string{}
 for key, value := range form {
     if strings.HasPrefix(key, "env_") {
         varName := strings.TrimPrefix(key, "env_")
-        extraVars[varName] = value
+        extraVars = append(extraVars, varName+"="+value)
     }
 }
-// Execute: ansible-playbook --extra-vars "container_name=value db_host=value"
+// Execute async: ansible-playbook --extra-vars "container_name=value db_host=value"
 ```
 
 ### Docker/Ansible Command Execution
@@ -264,6 +338,17 @@ router.LoadHTMLGlob("src/templates/*.html")
 c.HTML(http.StatusOK, "containers.html", gin.H{
     "containers": containers,
 })
+```
+
+**Log rendering (preserve newlines):**
+```html
+<!-- CORRECT: Preserve whitespace -->
+<pre id="log-content">{{ range .job.Logs }}{{ . }}
+{{ end }}</pre>
+
+<!-- WRONG: Strips newlines with {{- -->
+<pre id="log-content">{{- range .job.Logs }}{{ . }}
+{{- end }}</pre>
 ```
 
 ## Build and Deploy
@@ -338,6 +423,10 @@ The playbook detects changes and rebuilds only when necessary.
 - `script/start.sh` - Entry point for one-line installation
 - `playbooks/app/webapp/src/main.go` - Web application entry point
 - `playbooks/app/webapp/src/router.go` - Route definitions and template loading
+- `playbooks/app/webapp/src/lib/job/manager.go` - Job management (singleton pattern)
+- `playbooks/app/webapp/src/lib/ansible/ansible.go` - Ansible execution (sync/async)
+- `playbooks/app/webapp/src/controllers/installController.go` - Installation and job endpoints
+- `playbooks/app/webapp/src/templates/job_detail.html` - Real-time log viewer
 - `playbooks/app/webapp/docs/` - Detailed architecture and API documentation
 - `playbooks/app/main.yml` - Web app deployment playbook
 - `playbooks/docker/main.yml` - Docker setup playbook
